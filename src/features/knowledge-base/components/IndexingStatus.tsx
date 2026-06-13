@@ -3,10 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Database, Layers, CheckCircle2, AlertCircle, Loader2,
-  Clock, RefreshCw, Zap, HardDrive, Activity
+  Clock, RefreshCw, Zap, HardDrive, Activity, Gauge, RadioTower, Server
 } from "lucide-react";
 import { knowledgeBaseApi } from "../api/knowledgeBase.api";
-import { DocumentRecord, KBStatus } from "@/types";
+import { DocumentRecord, KBStatus, QdrantHealth, QdrantMetrics } from "@/types";
+import { getQdrantConnectionStatus, getQdrantVectorCount } from "../utils/qdrantStats";
 
 const StatCard = ({
   icon: Icon, label, value, sub, color,
@@ -50,6 +51,19 @@ const QueueItem = ({ item }: { item: any }) => {
   );
 };
 
+const DetailItem = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) => (
+  <div className="min-w-0">
+    <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
+    <p className="mt-1 truncate text-sm font-semibold text-slate-800">{value}</p>
+  </div>
+);
+
 export const IndexingStatus = () => {
   const {
     data,
@@ -58,18 +72,22 @@ export const IndexingStatus = () => {
     isFetching,
   } = useQuery<{
     status: KBStatus;
+    health: QdrantHealth | null;
+    metrics: QdrantMetrics | null;
     queue: DocumentRecord[];
     failed: DocumentRecord[];
   }>({
     queryKey: ["knowledge-base", "overview"],
     queryFn: async () => {
-      const [status, queue, failed] = await Promise.all([
+      const [status, health, metrics, queue, failed] = await Promise.all([
         knowledgeBaseApi.getStatus(),
+        knowledgeBaseApi.getQdrantHealth().catch(() => null),
+        knowledgeBaseApi.getQdrantMetrics().catch(() => null),
         knowledgeBaseApi.getQueue(),
         knowledgeBaseApi.getFailed(),
       ]);
 
-      return { status, queue, failed };
+      return { status, health, metrics, queue, failed };
     },
     refetchInterval: 8000,
   });
@@ -84,8 +102,17 @@ export const IndexingStatus = () => {
 
   if (!data?.status) return null;
 
-  const { status, queue, failed } = data;
+  const { status, health, metrics, queue, failed } = data;
   const { vectorStore, documents } = status;
+  const qdrantStatus = getQdrantConnectionStatus(status, health);
+  const vectorCount = getQdrantVectorCount(status, health, metrics);
+  const vectorDbCount = qdrantStatus === "connected" ? 1 : 0;
+  const operationCount = metrics
+    ? Object.values(metrics.operationCounts).reduce((sum, count) => sum + count, 0)
+    : 0;
+  const failureCount = metrics
+    ? Object.values(metrics.operationFailures).reduce((sum, count) => sum + count, 0)
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -93,14 +120,14 @@ export const IndexingStatus = () => {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-            vectorStore.status === "connected"
+            qdrantStatus === "connected"
               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
               : "bg-red-50 text-red-700 border-red-200"
           }`}>
             <span className={`w-1.5 h-1.5 rounded-full ${
-              vectorStore.status === "connected" ? "bg-emerald-500" : "bg-red-500"
+              qdrantStatus === "connected" ? "bg-emerald-500" : "bg-red-500"
             }`} />
-            Qdrant {vectorStore.status === "connected" ? "Connected" : "Disconnected"}
+            Qdrant {qdrantStatus === "connected" ? "Connected" : "Disconnected"}
           </span>
         </div>
         <button
@@ -123,9 +150,9 @@ export const IndexingStatus = () => {
         />
         <StatCard
           icon={Zap}
-          label="Total Vectors"
-          value={vectorStore.vectorCount.toLocaleString()}
-          sub="in Qdrant"
+          label="Vector DBs"
+          value={vectorDbCount}
+          sub="Qdrant instance"
           color="text-indigo-600"
         />
         <StatCard
@@ -143,6 +170,58 @@ export const IndexingStatus = () => {
           color="text-slate-600"
         />
       </div>
+
+      {/* Qdrant API details */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Server size={15} className="text-emerald-600" />
+            <h3 className="text-sm font-semibold text-slate-800">Qdrant Health</h3>
+            <span className={`ml-auto inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+              qdrantStatus === "connected"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : "bg-red-50 text-red-700 border-red-200"
+            }`}>
+              <CheckCircle2 size={11} />
+              /qdrant/health
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <DetailItem label="Collection" value={health?.collectionName ?? "Unavailable"} />
+            <DetailItem label="Vector Size" value={health?.vectorSize ?? "-"} />
+            <DetailItem label="Points" value={vectorCount.toLocaleString()} />
+            <DetailItem label="Latency" value={`${health?.latencyMs ?? 0} ms`} />
+          </div>
+          {health?.error && (
+            <p className="mt-3 text-xs text-red-600">{health.error}</p>
+          )}
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Gauge size={15} className="text-indigo-600" />
+            <h3 className="text-sm font-semibold text-slate-800">Qdrant Metrics</h3>
+            <span className="ml-auto inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+              <RadioTower size={11} />
+              /qdrant/metrics
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <DetailItem label="Throughput" value={`${metrics?.queryThroughput ?? 0}/s`} />
+            <DetailItem label="Avg Latency" value={`${metrics?.searchLatency.avgMs ?? 0} ms`} />
+            <DetailItem label="P95 Latency" value={`${metrics?.searchLatency.p95Ms ?? 0} ms`} />
+            <DetailItem label="Slow Queries" value={metrics?.searchLatency.slowQueries ?? 0} />
+            <DetailItem label="Ops" value={operationCount} />
+            <DetailItem label="Failures" value={failureCount} />
+            <DetailItem label="Recall" value={`${Math.round((metrics?.retrievalRecall ?? 0) * 100)}%`} />
+            <DetailItem label="Circuit" value={metrics?.circuitOpen ? "Open" : "Closed"} />
+          </div>
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-500">
+        Vectors and chunks are expected to match when each text chunk is stored as one Qdrant point with one embedding vector.
+      </p>
 
       {/* Secondary stats */}
       <div className="grid grid-cols-3 gap-3">

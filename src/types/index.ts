@@ -299,6 +299,34 @@ export interface KBStatus {
   };
 }
 
+export interface QdrantHealth {
+  ok: boolean;
+  collectionName: string;
+  vectorSize?: number;
+  pointsCount?: number;
+  vectorsCount?: number;
+  indexedVectorsCount?: number;
+  latencyMs: number;
+  error?: string;
+}
+
+export interface QdrantMetrics {
+  searchLatency: {
+    count: number;
+    avgMs: number;
+    p95Ms: number;
+    slowQueries: number;
+  };
+  retrievalRecall: number;
+  vectorCount: number;
+  chunkCount: number;
+  indexSize: number;
+  queryThroughput: number;
+  operationCounts: Record<string, number>;
+  operationFailures: Record<string, number>;
+  circuitOpen: boolean;
+}
+
 export interface RetrievalDiagnostics {
   vectorCandidates: number;
   keywordCandidates: number;

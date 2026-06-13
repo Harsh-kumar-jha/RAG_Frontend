@@ -1,5 +1,5 @@
 import { apiClient } from "@/lib/api.client";
-import { ApiResponse, KBStatus, KBEvaluation } from "@/types";
+import { ApiResponse, KBStatus, KBEvaluation, QdrantHealth, QdrantMetrics } from "@/types";
 
 export const knowledgeBaseApi = {
   /**
@@ -30,6 +30,30 @@ export const knowledgeBaseApi = {
   getFailed: async (): Promise<any[]> => {
     const res = await apiClient.get<ApiResponse<any[]>>("/knowledge-base/failed");
     return res.data.data || [];
+  },
+
+  /**
+   * Get Qdrant health
+   * GET /knowledge-base/qdrant/health
+   */
+  getQdrantHealth: async (): Promise<QdrantHealth> => {
+    const res = await apiClient.get<ApiResponse<QdrantHealth>>("/knowledge-base/qdrant/health");
+    if (!res.data.data) {
+      throw new Error(res.data.message || "Failed to get Qdrant health");
+    }
+    return res.data.data;
+  },
+
+  /**
+   * Get Qdrant metrics
+   * GET /knowledge-base/qdrant/metrics
+   */
+  getQdrantMetrics: async (): Promise<QdrantMetrics> => {
+    const res = await apiClient.get<ApiResponse<QdrantMetrics>>("/knowledge-base/qdrant/metrics");
+    if (!res.data.data) {
+      throw new Error(res.data.message || "Failed to get Qdrant metrics");
+    }
+    return res.data.data;
   },
 
   /**

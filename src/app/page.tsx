@@ -16,7 +16,8 @@ import {
   Zap,
 } from "lucide-react";
 import { knowledgeBaseApi } from "@/features/knowledge-base/api/knowledgeBase.api";
-import { KBStatus } from "@/types";
+import { getQdrantConnectionStatus } from "@/features/knowledge-base/utils/qdrantStats";
+import { KBStatus, QdrantHealth } from "@/types";
 
 const SAMPLE_QUERIES = [
   {
@@ -42,11 +43,27 @@ const SAMPLE_QUERIES = [
 ];
 
 export default function DashboardPage() {
-  const { data: kbStatus } = useQuery<KBStatus>({
-    queryKey: ["knowledge-base", "status"],
-    queryFn: knowledgeBaseApi.getStatus,
+  const { data: kbOverview } = useQuery<{
+    status: KBStatus;
+    health: QdrantHealth | null;
+  }>({
+    queryKey: ["knowledge-base", "dashboard-overview"],
+    queryFn: async () => {
+      const [status, health] = await Promise.all([
+        knowledgeBaseApi.getStatus(),
+        knowledgeBaseApi.getQdrantHealth().catch(() => null),
+      ]);
+
+      return { status, health };
+    },
     staleTime: 30_000,
   });
+
+  const kbStatus = kbOverview?.status;
+  const vectorDbCount = getQdrantConnectionStatus(
+    kbOverview?.status,
+    kbOverview?.health
+  ) === "connected" ? 1 : 0;
 
   return (
     <div className="flex-1 overflow-auto">
@@ -74,8 +91,8 @@ export default function DashboardPage() {
                 bg: "bg-emerald-50",
               },
               {
-                label: "Total Vectors",
-                value: kbStatus.vectorStore.vectorCount.toLocaleString(),
+                label: "Vector DBs",
+                value: vectorDbCount,
                 icon: Database,
                 color: "text-indigo-600",
                 bg: "bg-indigo-50",
